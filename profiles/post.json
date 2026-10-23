@@ -1,0 +1,34 @@
+{
+  "url": "https://sb2frontend-altenar2.biahosted.com/api/Widget/GetOddsStates",
+  "method": "POST",
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "es-ES,es;q=0.8",
+    "authorization": "${ALTENAR_AUTHORIZATION}",
+    "content-type": "application/json",
+    "priority": "u=1, i",
+    "Referer": "https://divinoplay.com/"
+  },
+  "body": {
+    "culture": "es-ES",
+    "timezoneOffset": 300,
+    "integration": "ondabet",
+    "deviceType": 1,
+    "numFormat": "en-GB",
+    "countryCode": "CO",
+    "odds": [
+      {
+        "oddId": 4688976701,
+        "price": 1.07,
+        "eventId": 18045531,
+        "marketTypeId": 1,
+        "selectionTypeId": 1,
+        "sportTypeId": 1,
+        "isBoost": false,
+        "marketSliceType": 0,
+        "intSelectionId": 3179
+      }
+    ]
+  },
+  "timeoutMs": 30000
+}

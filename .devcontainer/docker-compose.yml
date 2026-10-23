@@ -1,0 +1,26 @@
+services:
+  workspace:
+    build:
+      context: ..
+      dockerfile: .devcontainer/workspace.Dockerfile
+    command: sleep infinity
+    volumes:
+      - ..:/workspace:cached
+      - vscode-server:/root/.vscode-server
+    ports:
+      - "7500:7500"
+
+    working_dir: /workspace
+    user: root
+    networks:
+      devnet:
+        aliases:
+          - testmicrolink
+
+networks:
+  devnet:
+    external: true
+
+volumes:
+  vscode-server:
+

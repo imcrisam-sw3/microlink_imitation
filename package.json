@@ -1,0 +1,24 @@
+{
+  "name": "microlink-imitation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "capture": "tsx src/cli.ts capture",
+    "replay": "tsx src/cli.ts replay",
+    "compare": "tsx src/cli.ts compare",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/cli.js"
+  },
+  "packageManager": "pnpm@12.10.1",
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

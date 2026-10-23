@@ -1,0 +1,7 @@
+{
+  "url": "https://httpbin.org/json",
+  "method": "GET",
+  "headers": {},
+  "body": null,
+  "timeoutMs": 30000
+}
