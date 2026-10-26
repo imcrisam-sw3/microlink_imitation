@@ -1,17 +1,28 @@
-# Microlink imitation
+# Prueba simple de Microlink
 
-App de consola para hacer una petición a través de Microlink, guardar una referencia y reproducirla directamente desde Node en el Dev Container.
+Archivos en `src/`:
 
-## Entorno
+- `Microlink.ts`: cliente con los métodos `get(url, headers)` y `post(url, body, headers)`.
+- `TlsClient.ts`: método HTTP directo con `top-user-agents`, `https-tls` y Undici.
+- `FingerprintClient.ts`: cliente HTTP independiente con `fingerprint-generator` de Apify y Undici; usa el TLS predeterminado de Node, sin `TlsClient` ni `https-tls`.
+- `Altenar.ts`: peticiones editables y `getOddsStates(client)`, que obtiene un token y realiza el POST con ese mismo cliente.
+- `main.ts`: punto de entrada para activar las pruebas manuales.
+- `JsonFile.ts`: guarda datos en JSON o texto plano con un prefijo opcional y fecha/hora.
 
-Trabajar en la terminal del Dev Container, desde `/workspace`. La configuración existente usa Node 24 y pnpm; la app no necesita servicios adicionales.
+## Preparación
+
+En la terminal del devcontainer, desde `/workspace`:
 
 ```bash
 pnpm install --frozen-lockfile
+# Solo si todavía no tienes .env:
 cp .env.example .env
+pnpm start
 ```
 
-Completar `.env`:
+`pnpm start` carga el `.env` existente y ejecuta las llamadas activas en `src/main.ts`.
+
+## Configuración
 
 ```dotenv
 MICROLINK_ENDPOINT=https://api.microlink.io
@@ -19,109 +30,120 @@ MICROLINK_API_KEY=
 ALTENAR_AUTHORIZATION=
 ```
 
-La autorización se envía exactamente como se configura, sin añadir `Bearer`. El token pegado en la conversación no está incluido en los archivos.
+El endpoint predeterminado es el gratuito y no recibe la clave. Para usar Pro, cambia explícitamente `MICROLINK_ENDPOINT` a `https://pro.microlink.io` y completa `MICROLINK_API_KEY`.
 
-La app usa `https://api.microlink.io` por defecto y no le envía `x-api-key`, aunque exista una clave en el entorno o en `.env`. Los perfiles `get-free` y `public` no usan cabeceras personalizadas. La disponibilidad y los límites de Functions dependen del plan.
+Los ejemplos de Altenar incluyen cabeceras personalizadas, que requieren Pro. Para probar el endpoint gratuito, usa un GET sin cabeceras personalizadas. La autorización de Altenar se envía literalmente, sin añadir `Bearer`.
 
-`get-free` usa la misma URL de Altenar que `get`, pero sin las cabeceras de la petición original. Para reproducir esas cabeceras o probar POST, selecciona explícitamente `MICROLINK_ENDPOINT=https://pro.microlink.io` y completa `MICROLINK_API_KEY`. La app valida estas restricciones antes de hacer llamadas.
+## Pruebas manuales
 
-## Uso
+Edita las peticiones en `Altenar.ts` y ejecuta `pnpm start`. `main.ts` ejecuta el flujo GET de token y POST `GetOddsStates` una vez con `TlsClient` y una vez con `FingerprintClient`. Muestra el User-Agent, TLS, estado HTTP y respuesta POST de cada cliente, y cierra ambos Agents al terminar.
+
+GET solicita el JSON del destino. POST envía una Function legible que hace el POST al destino; la llamada a la API de Microlink sigue siendo GET. Ambos métodos devuelven la respuesta JSON completa de Microlink.
+
+Los `console.log` muestran parámetros, URLs, métodos, cabeceras, bodies, Function, estados HTTP y respuestas completas. Los logs remotos del POST aparecen dentro de la respuesta de Microlink.
+
+GET incluye un diagnóstico en `data.function.value`: `userAgent` (cabecera efectiva de la navegación), `statusCode` y `rawBody` (cuerpo original con tokens ocultos). Usa la misma respuesta del navegador de Microlink, sin hacer otro fetch al destino. Si la Function falla, se muestra `Diagnóstico destino no disponible`.
+
+Como Altenar usa nombres de campos opacos, el diagnóstico oculta todos los valores string del JSON con `[REDACTED_TOKEN]`, conservando claves, valores null y formato del cuerpo. También se ocultan los strings de `data.content` antes de registrar o guardar el resultado. En cuerpos no JSON, se ocultan credenciales Bearer y cadenas con formato de token; esta detección es heurística. Los encabezados sensibles del GET se ocultan en los logs.
+
+La verificación local del diagnóstico no contacta a Microlink ni al proveedor:
 
 ```bash
-# Endpoint gratuito: captura o comparación sin cabeceras personalizadas
-pnpm capture --profile get-free
-pnpm compare --profile get-free
-pnpm compare --profile public
-
-# Sin --profile también usa get-free
-pnpm compare
-
-# Peticiones originales con cabeceras: endpoint Pro explícito y clave en .env
-MICROLINK_ENDPOINT=https://pro.microlink.io pnpm capture --profile get
-MICROLINK_ENDPOINT=https://pro.microlink.io pnpm compare --profile get
-MICROLINK_ENDPOINT=https://pro.microlink.io pnpm compare --profile post
-
-# Repetir una captura sin volver a consultar Microlink
-pnpm replay --capture results/<ejecucion>/capture.json
-
-# Elegir un archivo o directorio de salida
-pnpm compare --profile profiles/otro-endpoint.json --out results
-
-pnpm capture --help
+node --test tests/microlink-diagnostic.test.mjs
 ```
 
-La app carga `.env` usando Node; las variables ya definidas en el entorno tienen prioridad.
 
-## Cambiar la request
+```bash
+pnpm typecheck
+pnpm build
+```
 
-Editar `profiles/get-free.json` para el gratuito, `profiles/get.json` o `profiles/post.json` para Pro, o crear otro perfil con esta forma:
+## POST de Altenar desde main
 
-```json
-{
-  "url": "https://example.com/api/items",
-  "method": "POST",
-  "headers": {
-    "accept": "application/json",
-    "authorization": "${ALTENAR_AUTHORIZATION}",
-    "content-type": "application/json"
-  },
-  "body": {
-    "limit": 10
-  },
-  "timeoutMs": 30000
+Cada llamada a `altenar.getOddsStates(client)` obtiene un token mediante `getRequest`, verifica que la respuesta sea HTTP 200/2xx y contenga un string no vacío en el campo de token observado, y lo envía literalmente en Authorization del POST. Un error HTTP, HTML, JSON inválido o token null impide ese POST. El token no se registra ni se guarda en el objeto compartido; GET y POST reutilizan el User-Agent y Agent de la instancia, con el mismo Origin y Referer.
+
+El cuerpo de la petición conserva `odds`, con `oddId: 4708159870`, `eventId: 18096674`, `intSelectionId: 3179` y `price: 2.4286`. Los demás campos existentes se conservan. `oddStates`, `liveTime`, `score` y los estados de la cuota pertenecen a la respuesta del proveedor. El precio enviado es una referencia de la captura; el precio recibido puede haber cambiado.
+
+```bash
+pnpm start
+```
+
+Si un cliente falla, se muestra su error y se prueba el siguiente; el proceso finaliza con código 1 si hubo algún fallo. No hay reintentos automáticos. `getOddsStates` devuelve el Response del POST para que puedas leerlo o guardarlo.
+
+## Dos métodos HTTP directos
+
+Ambas clases exponen `get(url, headers)`, `post(url, body, headers)` y `close()`. Devuelven el `Response` de Undici: lee `status`, `headers` y `await response.text()` o `await response.json()`. POST serializa el body como JSON y agrega `Content-Type: application/json` si no lo proporcionas.
+
+```ts
+import { TlsClient } from './TlsClient.js';
+import { FingerprintClient } from './FingerprintClient.js';
+
+const client = new TlsClient();
+// Alternativa, activa solo una:
+// const client = new FingerprintClient({
+//   browsers: ['chrome'],
+//   operatingSystems: ['linux'],
+//   devices: ['desktop'],
+//   locales: ['es-ES', 'es'],
+// });
+
+try {
+  console.log('User-Agent:', client.userAgent);
+  console.log('TLS:', 'tlsOptions' in client ? client.tlsOptions : 'Predeterminado de Node/Undici');
+  const response = await client.get(url, headers);
+  console.log('Status:', response.status);
+  const body = await response.text();
+  // El body puede contener un token. Evita publicarlo en logs compartidos.
+} finally {
+  await client.close();
 }
 ```
 
-- `url`: URL completa con sus parámetros.
-- `method`: GET o POST.
-- `headers`: cabeceras de la API destino. Los nombres se normalizan a minúsculas. Se admiten referencias `${VARIABLE}` en sus valores.
-- `body`: objeto/array/valor JSON, string ya serializado o null. Los objetos se serializan una sola vez; un string se transmite sin volver a codificar. GET exige body ausente o null.
-- `timeoutMs`: de 1 a 60000; default 30000. El servicio puede aplicar un límite menor.
+Cada instancia conserva su User-Agent y su Agent para GET y POST. Los headers específicos de la petición prevalecen sobre los generados, incluidos Origin, Referer y Authorization. El User-Agent de la instancia prevalece siempre sobre el de la petición. En `TlsClient` se usa para configurar TLS; en `FingerprintClient` mantiene la correspondencia con los headers generados. Si necesitas uno concreto en el método TLS, usa `new TlsClient(userAgent)`.
 
-El GET de ejemplo corresponde al endpoint de integración. El POST conserva el body de GetOddsStates y sus IDs de ejemplo, que pueden dejar de estar disponibles. Ambos perfiles son independientes: no hay renovación automática ni transferencia del token entre ellos.
+`FingerprintClient` genera una vez el fingerprint y sus headers; puedes inspeccionarlos en `client.fingerprint` y `client.headers`. Usa un perfil HTTP/1 para el transporte HTTP/1.1 de este Agent. Las propiedades JavaScript del fingerprint son datos: no se inyectan en un navegador porque estas clases usan HTTP directo. `FingerprintClient` no hereda de `TlsClient` ni carga `https-tls`: crea su propio Agent sin opciones TLS personalizadas. La suite genera el fingerprint y sus headers; Undici envía las peticiones con el TLS predeterminado de Node. Esto no reproduce exactamente el TLS de un navegador. Referencia: [fingerprint-suite](https://github.com/apify/fingerprint-suite).
 
-## Qué compara
-
-**GET nativo:** solicita `data.content.attr=json`, desactiva metadata, prerender y ping, y usa una Function para obtener las cabeceras disponibles en el contexto. Todo se pide en una sola llamada a Microlink.
-
-**POST Function:** ejecuta un fetch dentro de una Function, devuelve la petición configurada y su respuesta. El body viaja en una cabecera auxiliar codificada para evitar incluirlo en la URL de Microlink; la Function elimina esa cabecera antes de consultar el destino. Esto requiere una clave y está sujeto a límites de tamaño de cabeceras.
-
-El POST no prueba la ruta nativa de proxies de Microlink. Las cabeceras de la Function representan la configuración de fetch; no son una captura completa de los bytes enviados por el transporte.
-
-**Replay:** usa URL, método, body y cabeceras disponibles de la captura. Node calcula Host, Content-Length y cabeceras de transporte. No reenvía las cabeceras de autenticación de Microlink. La IP, TLS y valores implícitos del transporte pueden diferir.
-
-Cada `compare` envía una llamada a Microlink y una petición local. La app no reintenta ni sigue redirecciones locales. Microlink puede realizar redirecciones y operaciones internas adicionales; `retry=0` y `force=true` solicitan una referencia fresca.
-
-## Resultados
-
-`capture.json` contiene la request reproducible, cabeceras observables, respuesta del servicio, respuesta remota y diagnóstico. Cada replay crea su propio subdirectorio con `local.json` y `comparison.json`.
-
-El resumen muestra:
-
-- `accessWorks`: ambos lados devolvieron HTTP 2xx y JSON válido. Puede ser null si falta el estado remoto.
-- `jsonEqual`: igualdad semántica, sin depender del orden de claves. Una huella del JSON original permite detectar cambios incluso en valores ocultos; las diferencias sensibles no se muestran.
-- Estados HTTP, tipos de contenido, tiempos y hasta 50 diferencias del JSON.
-- Errores del servicio, bloqueos del destino, HTML, JSON inválido y timeouts.
-
-Una diferencia en cuotas no significa que haya fallado el acceso. Las credenciales conocidas se ocultan antes de guardar o mostrar resultados; pueden aparecer referencias como `${ALTENAR_AUTHORIZATION}`. Los archivos siguen conteniendo los demás datos devueltos por la API.
-
-Si una credencial conocida aparece en el body, la captura guarda marcadores y referencias explícitas al entorno. Replay restaura únicamente esos marcadores, conservando los bytes y el escape JSON; cualquier variable que falte detiene el envío.
-
-Los resultados y `.env` están ignorados por Git. Se crean directorios privados y archivos con modo 0600 en Linux. Si un perfil incluía credenciales literales, replay solicitará una variable como `REPLAY_AUTHORIZATION`; es preferible usar referencias desde el perfil inicial.
-
-Código de salida: 0 para acceso comprobado, 1 para fallo y 2 para comparación inconclusa.
-
-## Verificación
+En la versión anterior del 26 de octubre de 2026, ambas clases usaban `https-tls` y obtuvieron HTTP 200 en las consultas GET y POST. Después de independizar `FingerprintClient` y usar el TLS predeterminado, una consulta real devolvió HTTP 403 en el GET del token; el POST se omitió. Las pruebas locales verifican el funcionamiento y la independencia de las clases, sin acreditar acceso al proveedor. Se ejecutan así:
 
 ```bash
-pnpm test
-pnpm typecheck
-pnpm build
-node dist/cli.js --help
+node --import tsx --test tests/*.test.mjs
 ```
 
-Las pruebas levantan servidores HTTP locales: no consultan Altenar ni consumen cuota de Microlink. Cubren GET/POST, una sola llamada al servicio, replay independiente, .env, redacción de credenciales, errores y timeouts.
+## Debug en VS Code
 
-`MICROLINK_ENDPOINT` selecciona el endpoint del servicio. Por defecto es `https://api.microlink.io`, que nunca recibe la clave. `https://pro.microlink.io` requiere `MICROLINK_API_KEY`. Los endpoints alternativos explícitos (por ejemplo, servidores locales de prueba) reciben la clave configurada.
+Con el proyecto abierto dentro del devcontainer:
 
-Referencias oficiales: [JSON endpoints](https://microlink.io/use-cases/scraping/json-endpoints), [Functions](https://microlink.io/docs/api/parameters/function), [cabeceras](https://microlink.io/docs/api/parameters/headers), [arquitectura de Functions](https://microlink.io/blog/optimizing-microlink-functions).
+1. Abre `src/main.ts` y pon un breakpoint con F9 en una línea ejecutable.
+2. Abre **Ejecutar y depurar** y selecciona **Depurar app (Dev Container)**.
+3. Pulsa F5. La app carga `.env` y se detiene al entrar en `main.ts`.
+4. Usa F10 para avanzar una línea, F11 para entrar en un método y F5 para continuar.
+
+Los logs aparecen en la terminal integrada. Para entrar en `get` o `post`, descomenta la llamada correspondiente en `main.ts`; los ejemplos comentados no se ejecutan.
+
+La depuración usa TypeScript directamente con `tsx`; no necesitas compilar antes.
+
+## Guardar JSON o texto plano
+
+`JsonFile.save(datos, prefijo)` guarda en `results/` y devuelve la ruta. El prefijo es opcional y la fecha/hora usa UTC con milisegundos.
+
+- Objetos serializables y strings con JSON válido: archivo `.json` con formato.
+- Texto normal, HTML o JSON inválido: archivo `.txt` con el texto original.
+- Datos que JSON no puede serializar, como objetos circulares: archivo `.txt` con una representación legible.
+
+```ts
+import { JsonFile } from './JsonFile.js';
+
+const jsonFile = new JsonFile();
+await jsonFile.save({ mensaje: 'Prueba' }, 'comparacion');
+// results/comparacion-2026-10-26T15-30-10-123Z.json
+
+await jsonFile.save('{"ok":true}', 'api');
+// results/api-2026-10-26T15-30-10-123Z.json
+
+await jsonFile.save('<html>403 Forbidden</html>', 'error');
+// results/error-2026-10-26T15-30-10-123Z.txt
+```
+
+Puedes omitir el prefijo o cambiar la carpeta con `jsonFile.directory = 'otra-carpeta'`. El formato, contenido y ruta se muestran en consola. Si el nombre ya existe, Node devuelve su error normal y el archivo existente se conserva.
+
+Para guardar un cuerpo HTTP que puede ser JSON o HTML, pasa a `save` el resultado de `await response.text()`. Un objeto `Response` de `fetch` se serializa como `{}`; su contenido debe leerse antes.

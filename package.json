@@ -7,18 +7,21 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "capture": "tsx src/cli.ts capture",
-    "replay": "tsx src/cli.ts replay",
-    "compare": "tsx src/cli.ts compare",
-    "test": "tsx --test tests/*.test.ts",
+    "start": "tsx --env-file=.env src/main.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/cli.js"
+    "build": "tsc -p tsconfig.build.json"
   },
   "packageManager": "pnpm@12.10.1",
   "devDependencies": {
     "@types/node": "^24.19.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "fingerprint-generator": "^2.1.89",
+    "https-tls": "^1.0.25",
+    "top-user-agents": "^2.1.143",
+    "undici": "^8.12.3",
+    "unique-random-array": "^4.0.0"
   }
 }
