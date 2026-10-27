@@ -7,7 +7,7 @@ const randomUserAgent = uniqueRandomArray(userAgents);
 
 export class TlsClient {
   readonly userAgent: string;
-  readonly tlsOptions: ReturnType<typeof tls>;
+  readonly tlsOptions: Omit<ReturnType<typeof tls>, 'signatureAlgorithms'> & { sigalgs?: string };
   readonly headers: Readonly<Record<string, string>>;
   private readonly agent: Agent;
 
@@ -15,15 +15,24 @@ export class TlsClient {
     if (!userAgent) throw new Error('No se pudo obtener un User-Agent.');
     this.userAgent = userAgent;
     this.headers = Object.freeze({ ...headers });
-    this.tlsOptions = tls(userAgent);
+    const { signatureAlgorithms, ...tlsOptions } = tls(userAgent);
+    // https-tls usa el nombre de Got; Node/Undici reconoce sigalgs.
+    this.tlsOptions = { ...tlsOptions, sigalgs: signatureAlgorithms };
     this.agent = new Agent({ connect: { ...this.tlsOptions } });
   }
 
-  get(url: string, headers: Record<string, string> = {}) {
+  get(
+    url: string,
+    headers: Record<string, string> = {},
+    signal?: AbortSignal,
+    redirect: 'follow' | 'manual' | 'error' = 'follow',
+  ) {
     return fetch(url, {
       method: 'GET',
       dispatcher: this.agent,
       headers: this.requestHeaders(headers),
+      signal,
+      redirect,
     });
   }
 

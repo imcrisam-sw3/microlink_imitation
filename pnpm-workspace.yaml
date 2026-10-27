@@ -1,5 +1,6 @@
 allowBuilds:
   esbuild: true
   https-tls: true
+  koffi: true
 minimumReleaseAgeExclude:
   - top-user-agents@2.1.143

@@ -1,18 +1,18 @@
 import { FingerprintGenerator, type FingerprintGeneratorOptions, type Fingerprint } from 'fingerprint-generator';
 import { Agent, Headers, fetch } from 'undici';
+import tls from 'https-tls';
 
 export class FingerprintClient {
   readonly fingerprint: Fingerprint;
   readonly userAgent: string;
+  readonly tlsOptions: Omit<ReturnType<typeof tls>, 'signatureAlgorithms'> & { sigalgs?: string };
   readonly headers: Readonly<Record<string, string>>;
   private readonly agent: Agent;
 
   constructor(options: Partial<Omit<FingerprintGeneratorOptions, 'httpVersion'>> = {}) {
     const generator = new FingerprintGenerator({
-      browsers: ['chrome'],
-      operatingSystems: ['linux'],
-      devices: ['desktop'],
-      locales: ['es-ES', 'es'],
+      operatingSystems: ['ios'],
+      devices: ['mobile'],
       ...options,
       // Undici utiliza HTTP/1.1 con este Agent; no se anuncian perfiles HTTP/2.
       httpVersion: '1',
@@ -23,14 +23,23 @@ export class FingerprintClient {
     this.userAgent = userAgent;
     this.headers = Object.freeze({ ...headers });
     this.fingerprint = fingerprint;
-    this.agent = new Agent();
+    const { signatureAlgorithms, ...tlsOptions } = tls(userAgent);
+    this.tlsOptions = { ...tlsOptions, sigalgs: signatureAlgorithms };
+    this.agent = new Agent({ connect: { ...this.tlsOptions } });
   }
 
-  get(url: string, headers: Record<string, string> = {}) {
+  get(
+    url: string,
+    headers: Record<string, string> = {},
+    signal?: AbortSignal,
+    redirect: 'follow' | 'manual' | 'error' = 'follow',
+  ) {
     return fetch(url, {
       method: 'GET',
       dispatcher: this.agent,
       headers: this.requestHeaders(headers),
+      signal,
+      redirect,
     });
   }
 

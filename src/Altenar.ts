@@ -1,8 +1,13 @@
-import type { Response } from 'undici';
+type HttpResponse = {
+  status: number;
+  ok: boolean;
+  text(): Promise<string>;
+  json(): Promise<unknown>;
+};
 
 type HttpClient = {
-  get(url: string, headers?: Record<string, string>): Promise<Response>;
-  post(url: string, body: unknown, headers?: Record<string, string>): Promise<Response>;
+  get(url: string, headers?: Record<string, string>): Promise<HttpResponse>;
+  post(url: string, body: unknown, headers?: Record<string, string>): Promise<HttpResponse>;
 };
 
 export class Altenar {
@@ -41,9 +46,9 @@ export class Altenar {
       countryCode: 'CO',
       odds: [
         {
-          oddId: 4708159870,
+          oddId: 4634506256,
           price: 2.4286,
-          eventId: 18096674,
+          eventId: 17996917,
           marketTypeId: 1,
           selectionTypeId: 1,
           sportTypeId: 1,

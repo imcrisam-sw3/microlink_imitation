@@ -3,8 +3,8 @@ declare module 'https-tls' {
 
   type TLSOptions = Pick<
     ConnectionOptions,
-    'ciphers' | 'sigalgs' | 'ecdhCurve' | 'minVersion' | 'maxVersion'
-  >;
+    'ciphers' | 'ecdhCurve' | 'minVersion' | 'maxVersion'
+  > & { signatureAlgorithms?: ConnectionOptions['sigalgs'] };
 
   function tls(userAgent: string): TLSOptions;
 

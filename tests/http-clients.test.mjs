@@ -58,12 +58,12 @@ for (const name of ['TlsClient', 'FingerprintClient']) {
 }
 
 // Se bloquean las dependencias durante la carga real del módulo, sin inspeccionar su texto.
-test('FingerprintClient runs without loading TlsClient or https-tls', async () => {
+test('FingerprintClient runs without loading TlsClient', async () => {
   const { spawnSync } = await import('node:child_process');
   const script = `
     import { registerHooks } from 'node:module';
     registerHooks({ resolve(specifier, context, nextResolve) {
-      if (specifier.includes('TlsClient') || specifier === 'https-tls') {
+      if (specifier.includes('TlsClient')) {
         throw new Error('Forbidden FingerprintClient dependency: ' + specifier);
       }
       return nextResolve(specifier, context);
