@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { Agent, Headers, fetch } from 'undici';
 import uniqueRandomArray from 'unique-random-array';
 import userAgents from 'top-user-agents';
@@ -21,6 +22,19 @@ export class TlsClient {
     this.agent = new Agent({ connect: { ...this.tlsOptions } });
   }
 
+  /** Sin User-Agent elige otra familia TLS; siempre devuelve una instancia limpia. */
+  async changeProfile(userAgent?: string, headers: Record<string, string> = {}): Promise<TlsClient> {
+    if (userAgent === undefined) {
+      const browser = tls.getBrowser(this.userAgent);
+      const candidates = userAgents.filter(value => tls.getBrowser(value) !== browser);
+      if (!candidates.length) throw new Error('No hay otro perfil TLS disponible.');
+      userAgent = candidates[randomInt(candidates.length)]!;
+    }
+    const next = new TlsClient(userAgent, headers);
+    await this.agent.destroy(new Error('Perfil reemplazado.'));
+    return next;
+  }
+
   get(
     url: string,
     headers: Record<string, string> = {},
@@ -36,7 +50,7 @@ export class TlsClient {
     });
   }
 
-  post(url: string, body: unknown, headers: Record<string, string> = {}) {
+  post(url: string, body: unknown, headers: Record<string, string> = {}, redirect: 'follow' | 'manual' | 'error' = 'follow') {
     const requestHeaders = this.requestHeaders(headers);
     if (!requestHeaders.has('content-type')) requestHeaders.set('content-type', 'application/json');
     return fetch(url, {
@@ -44,10 +58,12 @@ export class TlsClient {
       dispatcher: this.agent,
       headers: requestHeaders,
       body: JSON.stringify(body),
+      redirect,
     });
   }
 
   close() {
+    if (this.agent.destroyed) return Promise.resolve();
     return this.agent.close();
   }
 

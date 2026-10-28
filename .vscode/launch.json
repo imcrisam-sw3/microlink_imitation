@@ -2,6 +2,27 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Depurar check-bot (Dev Container)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--import",
+        "tsx",
+        "--env-file-if-exists=${workspaceFolder}/.env",
+        "--enable-source-maps"
+      ],
+      "program": "${workspaceFolder}/src/check-bot.ts",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "sourceMaps": true,
+      "stopOnEntry": true,
+      "skipFiles": [
+        "<node_internals>/**",
+        "${workspaceFolder}/node_modules/**"
+      ]
+    },
+    {
       "name": "Depurar app (Dev Container)",
       "type": "node",
       "request": "launch",

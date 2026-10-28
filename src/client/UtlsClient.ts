@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -10,6 +11,15 @@ export interface UtlsClientOptions {
   binaryPath?: string;
   caFile?: string;
 }
+
+// Versiones de los perfiles Auto de uTLS v1.8.2 usados por native/utls/transport.go.
+// https://github.com/refraction-networking/utls/blob/v1.8.2/u_common.go
+const PROFILE_USER_AGENTS: Record<NonNullable<UtlsClientOptions['profile']>, string> = {
+  chrome: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+  firefox: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
+  safari: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
+  ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+};
 
 interface WorkerResponse {
   ready?: boolean;
@@ -55,6 +65,18 @@ export class UtlsClient {
     this.binaryPath = binaryPath ?? (existsSync(localBinary) ? localBinary : process.env.UTLS_BINARY_PATH ?? '/usr/local/bin/utls-worker');
   }
 
+  /** Sin opciones escoge otro perfil y su User-Agent; siempre termina el worker anterior. */
+  async changeProfile(options?: UtlsClientOptions): Promise<UtlsClient> {
+    if (options === undefined) {
+      const profiles = (Object.keys(PROFILE_USER_AGENTS) as Array<NonNullable<UtlsClientOptions['profile']>>).filter(value => value !== this.profile);
+      const profile = profiles[randomInt(profiles.length)]!;
+      options = { profile, headers: { 'User-Agent': PROFILE_USER_AGENTS[profile] } };
+    }
+    const next = new UtlsClient(options);
+    await this.close();
+    return next;
+  }
+
   get processId(): number | undefined {
     return this.worker?.pid;
   }
@@ -70,8 +92,8 @@ export class UtlsClient {
     return this.request('GET', url, undefined, headers, signal, redirect);
   }
 
-  post(url: string, body: unknown, headers: Record<string, string> = {}) {
-    return this.request('POST', url, JSON.stringify(body), headers);
+  post(url: string, body: unknown, headers: Record<string, string> = {}, redirect: 'follow' | 'manual' | 'error' = 'follow') {
+    return this.request('POST', url, JSON.stringify(body), headers, undefined, redirect);
   }
 
   close(): Promise<void> {

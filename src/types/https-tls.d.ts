@@ -7,6 +7,9 @@ declare module 'https-tls' {
   > & { signatureAlgorithms?: ConnectionOptions['sigalgs'] };
 
   function tls(userAgent: string): TLSOptions;
+  namespace tls {
+    function getBrowser(userAgent?: string): 'chrome' | 'firefox' | 'safari' | undefined;
+  }
 
   export = tls;
 }

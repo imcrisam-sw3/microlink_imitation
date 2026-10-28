@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { FingerprintGenerator, type FingerprintGeneratorOptions, type Fingerprint } from 'fingerprint-generator';
 import { Agent, Headers, fetch } from 'undici';
 import tls from 'https-tls';
@@ -28,6 +29,23 @@ export class FingerprintClient {
     this.agent = new Agent({ connect: { ...this.tlsOptions } });
   }
 
+  /** Sin opciones genera otra familia de navegador, SO y dispositivo compatibles. */
+  async changeProfile(options?: Partial<Omit<FingerprintGeneratorOptions, 'httpVersion'>>): Promise<FingerprintClient> {
+    if (options === undefined) {
+      const browsers = (['chrome', 'firefox', 'safari'] as const).filter(value => value !== tls.getBrowser(this.userAgent));
+      const browser = browsers[randomInt(browsers.length)]!;
+      options = {
+        browsers: [browser],
+        operatingSystems: browser === 'safari' ? ['macos', 'ios'] : ['windows', 'macos', 'linux', 'android'],
+        devices: ['desktop', 'mobile'],
+        strict: true,
+      };
+    }
+    const next = new FingerprintClient(options);
+    await this.agent.destroy(new Error('Perfil reemplazado.'));
+    return next;
+  }
+
   get(
     url: string,
     headers: Record<string, string> = {},
@@ -43,7 +61,7 @@ export class FingerprintClient {
     });
   }
 
-  post(url: string, body: unknown, headers: Record<string, string> = {}) {
+  post(url: string, body: unknown, headers: Record<string, string> = {}, redirect: 'follow' | 'manual' | 'error' = 'follow') {
     const requestHeaders = this.requestHeaders(headers);
     if (!requestHeaders.has('content-type')) requestHeaders.set('content-type', 'application/json');
     return fetch(url, {
@@ -51,10 +69,12 @@ export class FingerprintClient {
       dispatcher: this.agent,
       headers: requestHeaders,
       body: JSON.stringify(body),
+      redirect,
     });
   }
 
   close() {
+    if (this.agent.destroyed) return Promise.resolve();
     return this.agent.close();
   }
 

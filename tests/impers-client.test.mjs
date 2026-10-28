@@ -230,3 +230,32 @@ test('provided headers decode advertised ' + encoding + ' responses exactly once
 });
 
 }
+
+
+test('maxConnections controls real concurrency and survives automatic profile changes', async t => {
+  const clients = [await createClient({ maxConnections: 3 })];
+  t.after(() => Promise.all(clients.map(client => client.close())));
+  let active = 0; let peak = 0;
+  const url = await serve(t, (_req, res) => {
+    active++; peak = Math.max(peak, active);
+    res.on('close', () => active--);
+    setTimeout(() => res.end('ok'), 25);
+  });
+  for (let generation = 0; generation < 2; generation++) {
+    const client = clients.at(-1);
+    peak = 0;
+    assert.deepEqual(await Promise.all(Array.from({ length: 3 }, async () => (await client.get(url)).text())), ['ok', 'ok', 'ok']);
+    assert.equal(peak, 3);
+    assert.equal(client.maxConnections, 3);
+    if (generation === 0) clients.push(await client.changeProfile());
+  }
+});
+
+test('maxConnections defaults to one and rejects invalid values', async () => {
+  const client = await createClient();
+  assert.equal(client.maxConnections, 1);
+  await client.close();
+  for (const maxConnections of [0, -1, 1.5, Infinity, 2147483648]) {
+    await assert.rejects(createClient({ maxConnections }), /maxConnections/);
+  }
+});

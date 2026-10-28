@@ -39,6 +39,80 @@ pnpm build
 
 La configuración de VS Code `Depurar app (Dev Container)` apunta al nuevo `main`. Las dependencias nativas permitidas se indican en `pnpm-workspace.yaml`, incluido `re2`, requerido por `is-antibot`.
 
+## Cambiar de perfil desde cero
+
+Los cuatro clientes directos exponen `changeProfile()`. **Sin argumentos, el propio cliente elige al azar un perfil distinto del anterior.** El método cierra el cliente anterior, cancela sus peticiones pendientes y devuelve una **instancia nueva**. Reasigna la variable con `await`; las referencias al cliente anterior quedan cerradas.
+
+```ts
+// Cada variable representa un cliente ya creado; declárala con let.
+tlsClient = await tlsClient.changeProfile();
+fingerprintClient = await fingerprintClient.changeProfile();
+impersClient = await impersClient.changeProfile();
+utlsClient = await utlsClient.changeProfile();
+```
+
+| Cliente | Selección automática |
+| --- | --- |
+| TlsClient | Otro User-Agent de `top-user-agents`, de una familia TLS distinta a la anterior. |
+| FingerprintClient | Otra familia de navegador y un fingerprint generado con SO y dispositivo compatibles; puede elegir escritorio o móvil. |
+| ImpersClient | Un perfil del catálogo nativo instalado, de otra familia de navegador; reconoce también los alias del perfil anterior. |
+| UtlsClient | Otro de sus cuatro perfiles y un User-Agent con la familia y versión de los perfiles Auto de uTLS v1.8.2. |
+
+La selección excluye la familia anterior en TLS, Fingerprint e Impers, y el perfil anterior en uTLS. Puede volver a un perfil utilizado en cambios anteriores. La variedad disponible depende de los datos y perfiles instalados. El User-Agent de uTLS se mantiene junto a su cliente; la correspondencia de versiones se documenta en [uTLS v1.8.2](https://github.com/refraction-networking/utls/blob/v1.8.2/u_common.go). Los constructores conservan sus valores predeterminados actuales.
+
+Para elegir manualmente, pasa los argumentos del constructor. Esta vía permite repetir un perfil con una sesión nueva:
+
+```ts
+// Cada variable representa un cliente ya creado; declárala con let.
+tlsClient = await tlsClient.changeProfile('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0');
+
+fingerprintClient = await fingerprintClient.changeProfile({
+  browsers: ['firefox'],
+  operatingSystems: ['windows'],
+  devices: ['desktop'],
+});
+
+impersClient = await impersClient.changeProfile({ impersonate: 'chrome124' });
+
+utlsClient = await utlsClient.changeProfile({
+  profile: 'firefox',
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0' },
+});
+```
+
+Se crea un transporte independiente, sin reutilizar conexiones, sesiones TLS, cookies, fingerprint ni cabeceras de la instancia anterior. uTLS termina el proceso Go anterior y crea otro cuando haces una petición o llamas a `ready()`. TlsClient y FingerprintClient destruyen su Agent anterior; ImpersClient cierra su sesión nativa.
+
+En modo manual, la configuración nueva se pasa completa, con los mismos argumentos que el constructor. En ambos modos se descartan los headers, `headerMode`, `httpsTlsUserAgent`, timeout, certificados adicionales y ruta de binario de la instancia anterior. Los valores operativos omitidos vuelven a sus predeterminados. En FingerprintClient se genera otro fingerprint desde las opciones nuevas. Si necesitas un binario o certificados propios, utiliza la configuración manual.
+
+Las validaciones del constructor se ejecutan antes de cerrar el cliente anterior. La disponibilidad del motor, binario y perfil nativo se comprueba como antes al iniciar o usar el nuevo cliente. En Impers, `maxConnections` conserva el límite de concurrencia durante el cambio automático; en un cambio manual, omitirlo vuelve al valor predeterminado de uno. Las cabeceras que pases después en una petición son responsabilidad del llamador: el método no puede limpiar objetos que conserves fuera del cliente.
+
+Puedes invocar el método manualmente; `check-bot.ts` también lo utiliza al cerrar un lote cuando está habilitado el reinicio por racha contra un mock local. Las pruebas capturan conexiones, cookies, peticiones canceladas y ClientHello contra servidores loopback, tanto en selección manual como automática. También comprueban que el motor nativo admite todos los perfiles del catálogo utilizado.
+
+## Impers con ajustes de https-tls
+
+`ImpersClient` admite `httpsTlsUserAgent` para traducir la configuración de `https-tls` a opciones nativas de libcurl. Es optativo: si lo omites, se conserva el perfil de Impers sin estos overrides.
+
+```ts
+import { ImpersClient } from './client/ImpersClient.js';
+
+const client = new ImpersClient({
+  impersonate: 'chrome124',
+  httpsTlsUserAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+});
+try {
+  const response = await client.get('https://example.com/');
+  console.log(response.status, await response.text());
+} finally {
+  await client.close();
+}
+```
+
+Este modo carga `https-tls` al iniciar la sesión y aplica sus cifrados, algoritmos de firma, curvas y límites de versión TLS después del perfil nativo. Adapta los nombres de firma antiguos y el formato de libcurl. Envía el mismo User-Agent en GET/POST, aunque los headers de la instancia o petición indiquen otro. Funciona con `headerMode: 'profile'` y `'provided'`, incluida la descompresión del segundo modo; conserva la verificación de certificados.
+
+`impersonate` sigue seleccionando el perfil nativo, incluidos sus ajustes HTTP/2 y los demás parámetros TLS. No se deduce del User-Agent: elige uno compatible con la identidad que quieras usar. `https-tls` utiliza tablas por familia basadas en Chrome 92, Firefox 91 y Safari 14; no obtiene un perfil exacto de la versión declarada. La combinación es experimental y puede reducir la fidelidad del perfil original. No genera un dispositivo ni ejecuta JavaScript.
+
+Las pruebas capturan el ClientHello real contra servidores loopback y comprueban las tres familias, los dos modos de headers y GET/POST sin consultar proveedores.
+
 ## Cliente uTLS
 
 `UtlsClient` usa [uTLS](https://github.com/refraction-networking/utls) v1.8.2 desde un ejecutable Go propio. No utiliza los otros clientes, Undici, https-tls, fingerprint-generator ni impers.
@@ -103,22 +177,37 @@ export const GET_REQUEST = { method: 'GET', url: 'https://tu-destino/', headers:
 export const POST_REQUEST = { method: 'POST', url: 'https://tu-destino/', headers: {}, body: { value: 1 } };
 export const REQUEST_TO_USE = GET_REQUEST; // O POST_REQUEST.
 export const CLIENTS_TO_USE = ['tls', 'fingerprint', 'impers', 'utls'];
-export const REQUESTS_PER_CLIENT = 20;
-export const REPORT_EVERY = 5;
+export const REQUESTS_PER_CLIENT = 400;
+export const REPORT_EVERY = 40;
+export const CONCURRENCY = 10;
+export const INTERVAL_MS = 5_000;
+export const PROFILE_RESET = {
+  enabled: false, // Sólo mocks en loopback: localhost, 127.0.0.0/8 o ::1.
+  consecutive: 3,
+  statusCodes: [403, 400],
+};
 ```
 
-La URL inicial está vacía para que configures tu destino. `AVAILABLE_CLIENTS` contiene las factorías de `tls`, `fingerprint`, `impers`, `utls` y `microlink`; sólo se crean los seleccionados. Microlink se selecciona explícitamente porque utiliza su API remota.
+Configura el destino en `GET_REQUEST` o `POST_REQUEST`. `AVAILABLE_CLIENTS` contiene las factorías de `tls`, `fingerprint`, `impers`, `utls` y `microlink`; sólo se crean los seleccionados. Microlink se selecciona explícitamente porque utiliza su API remota.
 
-La cantidad es por cliente: 20 con cuatro clientes son 80 llamadas al destino. Los clientes se ejecutan secuencialmente y conservan su instancia. El script muestra la URL, el agente, su User-Agent efectivo y `isbot`; por petición muestra el status, las señales antibot y el tiempo. Cada `REPORT_EVERY` peticiones informa los conteos de todos los status observados. También informa el último bloque incompleto y un resumen final por cliente. Los errores de conexión se cuentan aparte, sin inventar un status 0.
+La cantidad es por cliente: 400 con cuatro clientes son 1600 llamadas al destino. Los clientes se procesan uno después del otro. Cada cliente lanza lotes de hasta `CONCURRENCY` peticiones simultáneas; el último contiene sólo las restantes. El primer lote comienza inmediatamente. Los siguientes esperan a que termine el anterior y a que transcurra `INTERVAL_MS` desde su inicio: si tarda más, continúan sin acumular lotes pendientes. No hay pausa tras el último lote. Impers recibe el límite de conexiones necesario para permitir esa concurrencia.
+
+El script muestra la URL, el agente, su User-Agent efectivo y `isbot`. Cada `REPORT_EVERY` peticiones informa el estado y tiempo del último intento y los conteos acumulados; también informa el último bloque incompleto y un resumen final por cliente. Los resultados se procesan en orden de intento, aunque las respuestas lleguen desordenadas. Los errores de conexión se cuentan aparte, sin inventar un status 0.
+
+Con `PROFILE_RESET.enabled: true`, cualquier código del conjunto incrementa una misma racha: `403, 400, 403` alcanza `consecutive: 3`. Otro estado o un error sin respuesta corta la racha; ésta puede continuar entre lotes. Alcanzar el umbral programa un solo cambio al finalizar el lote, aunque haya más coincidencias o éxitos en ese lote. Se llama a `changeProfile()` sin argumentos, se usa la instancia nueva y se reinicia la racha. No se cancelan respuestas del lote ni se reenvían intentos. Si ya se completó el total, no se crea otro perfil.
+
+El cambio automático sólo se permite con un destino loopback. Con la URL externa configurada, permanece desactivado. Microlink admite lotes, pero seleccionar Microlink con cambios automáticos activados es un error de configuración. La validación ocurre antes de enviar peticiones o reemplazar los resultados anteriores. Si un cambio falla, se guarda `profileChangeError`, se cierra el cliente y se continúa con el siguiente.
+
+`runCheck` admite `concurrency`, `intervalMs` y `profileReset` en `CheckConfig`. Omitir estas opciones conserva el comportamiento anterior: concurrencia uno, intervalo cero y cambios desactivados. `ImpersClient` admite `maxConnections`, cuyo valor predeterminado sigue siendo uno.
 
 La detección usa las respuestas del propio conteo, sin una petición previa al destino. Para conocer el User-Agent nativo de Impers se hace una petición a un servidor loopback temporal; aparece como `identityRequests` y se informa fuera del conteo al destino. Microlink usa el diagnóstico que devuelve su API: se cuenta el status del destino, y un User-Agent no disponible queda como `null`/`desconocido`.
 
-GET usa redirecciones manuales en los clientes directos. POST conserva el comportamiento de cada cliente, incluidas sus redirecciones. Las cantidades representan llamadas a get/post; los detalles internos de navegación de Microlink dependen del servicio.
+GET usa redirecciones manuales en los clientes directos. POST también usa redirecciones manuales cuando el cambio automático de perfil está activado, para impedir que un mock redirija fuera de loopback. Con los cambios desactivados, POST conserva su comportamiento anterior de seguir redirecciones. Los cuatro clientes directos aceptan un cuarto argumento opcional `redirect` en `post(url, body, headers, redirect)`, cuyo valor predeterminado es `follow`. Las cantidades representan llamadas a get/post; los detalles internos de navegación de Microlink dependen del servicio.
 
-Cada ejecución crea una carpeta única en el directorio temporal del entorno donde corre Node y muestra su ruta:
+Cada ejecución guarda en la carpeta fija `results/check-bot/` dentro del repositorio y muestra su ruta. Al comenzar una ejecución válida se elimina el contenido anterior de esa carpeta, incluidos los clientes y archivos que ya no correspondan a la nueva ejecución:
 
 ```text
-/tmp/client-bot-.../
+results/check-bot/
   request.json
   tls/
     000001.json
@@ -128,7 +217,7 @@ Cada ejecución crea una carpeta única en el directorio temporal del entorno do
   summary.json
 ```
 
-Cada archivo conserva status, headers, cuerpo JSON o texto, identidad, detección, duración y error si existe. Las credenciales reconocibles de headers y campos sensibles se ocultan al guardar. Los archivos permanecen tras finalizar para inspeccionarlos y se pueden borrar después; si ejecutas en el Dev Container estarán dentro de él.
+Cada archivo conserva status, headers, cuerpo JSON o texto, identidad, detección, duración, `profileGeneration` (desde 1) y error si existe. El resumen incluye `profileChanges` y `profileChangeError`; `identityRequests` acumula las comprobaciones locales de identidad, también después de un cambio de Impers. Las credenciales reconocibles de headers y campos sensibles se ocultan al guardar. Los archivos permanecen tras finalizar hasta la próxima ejecución, que los reemplaza. `results/` está ignorada por Git. En el Dev Container se guardan en `/workspace/results/check-bot/`, visible también desde WSL en el repositorio montado.
 
 `isbot` sólo evalúa el User-Agent. `has antibot=false` significa que no se encontraron señales conocidas en esa respuesta; no demuestra ausencia de protección. El resumen distingue los errores de transporte de los estados HTTP. Las pruebas usan servidores locales y una API Microlink simulada.
 
