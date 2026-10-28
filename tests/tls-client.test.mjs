@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { test } from 'node:test';
-import { TlsClient } from '../src/TlsClient.ts';
-import { FingerprintClient } from '../src/FingerprintClient.ts';
+import { TlsClient } from '../src/client/TlsClient.ts';
+import { FingerprintClient } from '../src/client/FingerprintClient.ts';
 
 for (const [name, createClient] of [
   ['TlsClient', () => new TlsClient('Mozilla/5.0 Chrome/153.0.0.0 Safari/537.36')],
@@ -57,7 +57,7 @@ test(`${name} emits the configured Chrome signature algorithms in its ClientHell
 
 test('ImpersClient emits a native Safari ClientHello with GREASE and HTTP/2 ALPN', { timeout: 5000 }, async () => {
   const { createServer } = await import('node:net');
-  const { ImpersClient } = await import('../src/ImpersClient.ts');
+  const { ImpersClient } = await import('../src/client/ImpersClient.ts');
   const client = new ImpersClient();
   await client.ready();
   let captured;

@@ -1,210 +1,175 @@
-# Prueba simple de Microlink
+# microlink-imitation
 
-Archivos en `src/`:
+Base sencilla en TypeScript para probar clientes HTTP y analizar User-Agent o respuestas con herramientas independientes.
 
-- `Microlink.ts`: cliente con los métodos `get(url, headers)` y `post(url, body, headers)`.
-- `TlsClient.ts`: método HTTP directo con `top-user-agents`, `https-tls` y Undici.
-- `FingerprintClient.ts`: cliente HTTP independiente con `fingerprint-generator`, Undici y un perfil TLS de `https-tls`, sin heredar de `TlsClient`.
-- `ImpersClient.ts`: cliente independiente con `impers` y `curl-impersonate`, con Safari para iPhone como perfil inicial.
-- `Altenar.ts`: peticiones editables y `getOddsStates(client)`, que obtiene un token y realiza el POST con ese mismo cliente.
-- `main.ts`: punto de entrada para activar las pruebas manuales.
-- `JsonFile.ts`: guarda datos en JSON o texto plano con un prefijo opcional y fecha/hora.
+## Estructura
 
-## Preparación
+```text
+legacy/                    Proyecto anterior: fuentes, pruebas, README, configuración y resultados
+src/
+  client/
+    TlsClient.ts           Undici con configuración TLS según el User-Agent
+    FingerprintClient.ts   Undici con headers generados por fingerprint-generator
+    ImpersClient.ts        Sesion nativa de impers/curl-impersonate
+    UtlsClient.ts          Worker Go independiente con uTLS
+    Microlink.ts           Cliente de la API de Microlink
+  tool/
+    BotDetector.ts         Reconoce bots por su User-Agent con isbot
+    AntibotDetector.ts     Reconoce señales de protección con is-antibot
+  types/                   Declaraciones TypeScript para https-tls
+  main.ts                  Imports y ejemplos comentados
+tests/                    Pruebas locales de clientes y herramientas
+```
 
-En la terminal del devcontainer, desde `/workspace`:
+Los cuatro clientes anteriores conservan sus métodos y comportamiento. El nuevo `UtlsClient` también proporciona `get`, `post`, `ready` y `close`. `TlsClient`, `FingerprintClient` e `ImpersClient` proporcionan `get`, `post` y `close`; `Microlink` proporciona `get` y `post` y devuelve el resultado de su API.
+
+## Entorno y comandos
+
+Usa WSL o el Dev Container del proyecto, con Node.js 24 y pnpm 12.10.1.
 
 ```bash
 pnpm install --frozen-lockfile
-# Solo si todavía no tienes .env:
-cp .env.example .env
 pnpm start
-```
-
-`pnpm start` carga el `.env` existente y ejecuta las llamadas activas en `src/main.ts`.
-
-## Configuración
-
-```dotenv
-MICROLINK_ENDPOINT=https://api.microlink.io
-MICROLINK_API_KEY=
-ALTENAR_AUTHORIZATION=
-```
-
-El endpoint predeterminado es el gratuito y no recibe la clave. Para usar Pro, cambia explícitamente `MICROLINK_ENDPOINT` a `https://pro.microlink.io` y completa `MICROLINK_API_KEY`.
-
-Los ejemplos de Altenar incluyen cabeceras personalizadas, que requieren Pro. Para probar el endpoint gratuito, usa un GET sin cabeceras personalizadas. La autorización de Altenar se envía literalmente, sin añadir `Bearer`.
-
-## Pruebas manuales
-
-Edita las peticiones en `Altenar.ts` y ejecuta `pnpm start`. `main.ts` ejecuta el flujo GET de token y POST `GetOddsStates` una vez con cada cliente: `TlsClient`, `FingerprintClient` e `ImpersClient`. Para los dos primeros muestra el User-Agent y las opciones TLS; para Impers muestra el perfil de navegador y su transporte nativo. También muestra el estado y la respuesta POST, y finaliza los tres clientes al terminar.
-
-GET solicita el JSON del destino. POST envía una Function legible que hace el POST al destino; la llamada a la API de Microlink sigue siendo GET. Ambos métodos devuelven la respuesta JSON completa de Microlink.
-
-Los `console.log` muestran parámetros, URLs, métodos, cabeceras, bodies, Function, estados HTTP y respuestas completas. Los logs remotos del POST aparecen dentro de la respuesta de Microlink.
-
-GET incluye un diagnóstico en `data.function.value`: `userAgent` (cabecera efectiva de la navegación), `statusCode` y `rawBody` (cuerpo original con tokens ocultos). Usa la misma respuesta del navegador de Microlink, sin hacer otro fetch al destino. Si la Function falla, se muestra `Diagnóstico destino no disponible`.
-
-Como Altenar usa nombres de campos opacos, el diagnóstico oculta todos los valores string del JSON con `[REDACTED_TOKEN]`, conservando claves, valores null y formato del cuerpo. También se ocultan los strings de `data.content` antes de registrar o guardar el resultado. En cuerpos no JSON, se ocultan credenciales Bearer y cadenas con formato de token; esta detección es heurística. Los encabezados sensibles del GET se ocultan en los logs.
-
-La verificación local del diagnóstico no contacta a Microlink ni al proveedor:
-
-```bash
-node --test tests/microlink-diagnostic.test.mjs
-```
-
-
-```bash
+pnpm test
 pnpm typecheck
 pnpm build
 ```
 
-## POST de Altenar desde main
+`pnpm start` carga `src/main.ts`, que contiene únicamente ejemplos comentados: no crea clientes ni hace peticiónes. Descomenta solo el ejemplo que quieras ejecutar. `.env` se carga si existe; las variables de Microlink se documentan en `.env.example`.
 
-Cada llamada a `altenar.getOddsStates(client)` obtiene un token mediante `getRequest`, verifica que la respuesta sea HTTP 200/2xx y contenga un string no vacío en el campo de token observado, y lo envía literalmente en Authorization del POST. Un error HTTP, HTML, JSON inválido o token null impide ese POST. El token no se registra ni se guarda en el objeto compartido; GET y POST reutilizan la misma instancia y su configuración de transporte, con el mismo Origin y Referer.
+La configuración de VS Code `Depurar app (Dev Container)` apunta al nuevo `main`. Las dependencias nativas permitidas se indican en `pnpm-workspace.yaml`, incluido `re2`, requerido por `is-antibot`.
 
-El cuerpo de la petición conserva `odds`, con `oddId: 4708159870`, `eventId: 18096674`, `intSelectionId: 3179` y `price: 2.4286`. Los demás campos existentes se conservan. `oddStates`, `liveTime`, `score` y los estados de la cuota pertenecen a la respuesta del proveedor. El precio enviado es una referencia de la captura; el precio recibido puede haber cambiado.
+## Cliente uTLS
+
+`UtlsClient` usa [uTLS](https://github.com/refraction-networking/utls) v1.8.2 desde un ejecutable Go propio. No utiliza los otros clientes, Undici, https-tls, fingerprint-generator ni impers.
+
+La imagen del Dev Container compila el ejecutable en una etapa Go y lo copia a `/usr/local/bin/utls-worker`. Go no se instala en el contenedor Node. Para disponer del binario en el contenedor actual, sin reconstruirlo, ejecuta desde **WSL**, con Docker disponible:
 
 ```bash
-pnpm start
+cd /home/sw3/test/microlink_imitation
+sh scripts/build-utls.sh
 ```
 
-Si un cliente falla, se muestra su error y se prueba el siguiente; el proceso finaliza con código 1 si hubo algún fallo. No hay reintentos automáticos. `getOddsStates` acepta clientes con respuestas estructurales que exponen `status`, `ok`, `text()` y `json()`, y devuelve la respuesta del POST sin convertirla a un Response de Undici.
-
-## Clientes HTTP con Undici
-
-Ambas clases exponen `get(url, headers)`, `post(url, body, headers)` y `close()`. Devuelven el `Response` de Undici: lee `status`, `headers` y `await response.text()` o `await response.json()`. POST serializa el body como JSON y agrega `Content-Type: application/json` si no lo proporcionas.
+Esto compila y prueba el módulo dentro de Docker y exporta `bin/utls-worker`. La carpeta está montada también en `/workspace/bin` del Dev Container. `pnpm build:utls` hace lo mismo cuando Node/pnpm y Docker están disponibles en el entorno que ejecuta el comando. El comando no necesita el socket Docker dentro del contenedor Node: ejecútalo desde WSL.
 
 ```ts
-import { TlsClient } from './TlsClient.js';
-import { FingerprintClient } from './FingerprintClient.js';
+import { UtlsClient } from './client/UtlsClient.js';
 
-const client = new TlsClient();
-// Alternativa, activa solo una:
-// const client = new FingerprintClient({
-//   browsers: ['chrome'],
-//   operatingSystems: ['linux'],
-//   devices: ['desktop'],
-//   locales: ['es-ES', 'es'],
-// });
-
-try {
-  console.log('User-Agent:', client.userAgent);
-  console.log('TLS:', client.tlsOptions);
-  const response = await client.get(url, headers);
-  console.log('Status:', response.status);
-  const body = await response.text();
-  // El body puede contener un token. Evita publicarlo en logs compartidos.
-} finally {
-  await client.close();
-}
-```
-
-Ambas clases convierten `signatureAlgorithms`, devuelto por `https-tls`, a `sigalgs`, que reconoce Node/Undici. `client.tlsOptions` muestra las opciones adaptadas que se entregan al Agent.
-
-Cada instancia conserva su User-Agent y su Agent para GET y POST. Los headers específicos de la petición prevalecen sobre los generados, incluidos Origin, Referer y Authorization. El User-Agent de la instancia prevalece siempre sobre el de la petición. Ambas clases lo usan para configurar TLS; en `FingerprintClient` también mantiene la correspondencia con los headers generados. Si necesitas uno concreto en el método TLS, usa `new TlsClient(userAgent)`.
-
-`FingerprintClient` genera una vez el fingerprint y sus headers; puedes inspeccionarlos en `client.fingerprint` y `client.headers`. Configura su propio Agent con `https-tls` a partir del mismo User-Agent y adapta `signatureAlgorithms` a `sigalgs`. No importa ni hereda de `TlsClient`. Las propiedades JavaScript del fingerprint son datos: no se inyectan en un navegador porque esta clase usa HTTP directo. La suite genera el fingerprint y sus headers; `https-tls` aporta el perfil TLS. Referencia: [fingerprint-suite](https://github.com/apify/fingerprint-suite).
-
-El 26 de octubre de 2026 se verificó que el TLS predeterminado de Node devolvía HTTP 403 en el GET del token. `FingerprintClient` con su propio perfil `https-tls` y `sigalgs` obtuvo token y HTTP 200 en el POST `GetOddsStates`. Ese es un resultado de una prueba concreta. Las pruebas automáticas validan el funcionamiento local, la independencia de `TlsClient` y los algoritmos de firma realmente emitidos en el ClientHello:
-
-```bash
-node --import tsx --test tests/*.test.mjs
-```
-
-## Cliente nativo con Impers
-
-ImpersClient usa impers 0.1.2 y curl-impersonate dentro del mismo proceso Node; no ejecuta Python ni un navegador. El perfil inicial es safari_ios (Safari para iPhone), configurable con impersonate. Con el paquete instalado ese alias selecciona safari260_ios. La verificación de certificados permanece activa.
-
-En la terminal del Dev Container, desde /workspace:
-
-```bash
-pnpm install --frozen-lockfile
-# La compilación de koffi está habilitada en pnpm-workspace.yaml.
-# Opcional: mantener el binario descargado en la caché del proyecto.
-export IMPER_CACHE_DIR="$PWD/node_modules/.cache/impers"
-```
-
-La primera carga de Impers descarga curl-impersonate v2.2.2 si no encuentra el motor local. La descarga y el perfil se preparan con ready() antes de medir las peticiones. Para utilizar una instalación propia se puede definir LIBCURL_PATH con la ruta de libcurl-impersonate.so. Una libcurl convencional provoca un error explícito. Las opciones TLS y Fingerprint no inicializan este motor.
-
-```ts
-import { ImpersClient } from './ImpersClient.js';
-
-const client = new ImpersClient({
-  impersonate: 'safari_ios',
-  timeoutMs: 20_000,
+const client = new UtlsClient({
+  profile: 'chrome',
   headers: { Accept: 'application/json' },
+  timeoutMs: 20_000,
 });
-
 try {
-  await client.ready();
-  const response = await client.get('http://127.0.0.1:7500/ejemplo');
-  console.log('Estado:', response.status);
-  console.log('Respuesta:', await response.text());
+  const response = await client.get('https://example.com/');
+  console.log(response.status, response.httpVersion, await response.text());
+  // Usa el mismo proceso Go y conserva cookies y conexiones de esta instancia.
+  await client.post('https://example.com/', { value: 1 });
 } finally {
   await client.close();
 }
 ```
 
-La clase ofrece get(url, headers, signal?, redirect?), post(url, body, headers), ready() y close(). Los headers por petición prevalecen sobre los del constructor sin modificar los originales. El perfil nativo aporta el User-Agent; el adaptador elimina cualquier User-Agent o sec-ch-ua* recibido para evitar mezclar identidades. Conserva autorización, Origin, Referer y los demás headers funcionales.
+El constructor no arranca procesos. La primera petición o `ready()` inicia uno; `close()` cancela peticiones, cierra la sesión y espera su terminación. Una caída del worker rechaza las peticiones pendientes; crea otra instancia para abrir una sesión nueva. Node y Go intercambian JSON por stdin/stdout sin abrir puertos; los diagnósticos de Go van a stderr. `processId` permite identificar el proceso.
 
-POST serializa el cuerpo como JSON y añade Content-Type solo cuando falta. Las respuestas exponen status, ok, headers.get(), text() y json() asíncronos. El cuerpo se descarga por completo antes de devolver la respuesta; si la descarga falla, no se inventa un estado HTTP parcial. timeoutMs se expresa en milisegundos y se convierte a segundos para el SDK.
+Opciones:
+- `profile`: `chrome` (predeterminado), `firefox`, `safari` o `ios`; selecciona el ClientHello incluido en la versión fijada de uTLS.
+- `headers`: headers propios de la instancia, con overrides por petición. El perfil sólo configura TLS: no genera un User-Agent de navegador ni simula JavaScript o un dispositivo. El User-Agent predeterminado es `utls-client/1.0`.
+- `binaryPath`: ejecutable explícito. En su ausencia se busca `bin/utls-worker`, después `UTLS_BINARY_PATH` y finalmente `/usr/local/bin/utls-worker`.
+- `caFile`: certificados CA adicionales en PEM; la verificación TLS permanece activa.
 
-Cada instancia conserva sus cookies y su propio gestor de conexiones nativo, con maxConnections: 1. close() cancela las transferencias pendientes, cierra el gestor, es idempotente e impide nuevas peticiones. No se añaden reintentos al adaptador.
+`get(url, headers?, signal?, redirect?)` admite cancelación y `follow`, `manual` o `error`. `post(url, body, headers?)` envía JSON. El timeout incluye el arranque y la lectura completa del cuerpo. Las respuestas exponen `status`, `ok`, `headers`, `url`, `httpVersion`, `text()` y `json()`. El cuerpo se almacena en memoria; las peticiones y respuestas se limitan a 16 MiB. El transporte descomprime gzip, deflate, Brotli y zstd, también cuando proporcionas Accept-Encoding explícitamente; el límite se aplica al cuerpo descomprimido. Las cookies respetan los límites públicos entre dominios.
 
-### Seleccionar el cliente
+Soporta conexiones directas HTTP/1.1 y HTTPS con HTTP/1.1 o HTTP/2 según ALPN. HTTP/2 funcional no reproduce por sí mismo los ajustes HTTP/2 de un navegador. Esta versión no configura proxies ni HTTP/3.
 
-Los scripts pnpm start (Altenar) y pnpm start:sofascore comparan TLS, Fingerprint e Impers. Son pruebas manuales contra los destinos configurados.
-
-Los dos probes aceptan --client=tls|fingerprint|impers; tls sigue siendo la opción predeterminada:
+Las pruebas nuevas utilizan servidores loopback y el binario real; no hacen peticiones a proveedores. Para probar Go con detección de carreras sin instalarlo:
 
 ```bash
-# Simulación local: crea su propio servidor y no consulta proveedores.
-pnpm probe:mock --client=impers
-
-# Probe contra un servidor local propio con el contrato de eventos/estadísticas.
-pnpm probe:clients --client=impers --base-url=http://127.0.0.1:7500
+docker run --rm \
+  --mount type=bind,source="$PWD/native/utls",target=/src \
+  -w /src golang:1.26-bookworm go test -race ./...
 ```
 
-Se mantienen los límites, intervalos y políticas de cierre de cada probe. En los informes de Impers se registra impersonate en lugar de inventar userAgent u opciones TLS de Node. Los informes siguen guardándose en results/.
+## Comparar clientes y detectar señales de bots
 
-impers está en fase alfa. Las verificaciones de esta integración utilizan únicamente servidores locales: métodos, cookies, identidad Safari móvil, cancelación, redirecciones, flujo token→POST, límites de los probes y ClientHello con GREASE y ALPN HTTP/2. Esto no constituye una prueba de acceso a un proveedor externo.
+Edita la configuración al inicio de `src/check-bot.ts` y ejecuta en el Dev Container:
 
-## Debug en VS Code
-
-Con el proyecto abierto dentro del devcontainer:
-
-1. Abre `src/main.ts` y pon un breakpoint con F9 en una línea ejecutable.
-2. Abre **Ejecutar y depurar** y selecciona **Depurar app (Dev Container)**.
-3. Pulsa F5. La app carga `.env` y se detiene al entrar en `main.ts`.
-4. Usa F10 para avanzar una línea, F11 para entrar en un método y F5 para continuar.
-
-Los logs aparecen en la terminal integrada. Para entrar en `get` o `post`, usa F11 al ejecutar el flujo del cliente correspondiente.
-
-La depuración usa TypeScript directamente con `tsx`; no necesitas compilar antes.
-
-## Guardar JSON o texto plano
-
-`JsonFile.save(datos, prefijo)` guarda en `results/` y devuelve la ruta. El prefijo es opcional y la fecha/hora usa UTC con milisegundos.
-
-- Objetos serializables y strings con JSON válido: archivo `.json` con formato.
-- Texto normal, HTML o JSON inválido: archivo `.txt` con el texto original.
-- Datos que JSON no puede serializar, como objetos circulares: archivo `.txt` con una representación legible.
+```bash
+pnpm check:bot
+```
 
 ```ts
-import { JsonFile } from './JsonFile.js';
-
-const jsonFile = new JsonFile();
-await jsonFile.save({ mensaje: 'Prueba' }, 'comparacion');
-// results/comparacion-2026-10-26T15-30-10-123Z.json
-
-await jsonFile.save('{"ok":true}', 'api');
-// results/api-2026-10-26T15-30-10-123Z.json
-
-await jsonFile.save('<html>403 Forbidden</html>', 'error');
-// results/error-2026-10-26T15-30-10-123Z.txt
+export const GET_REQUEST = { method: 'GET', url: 'https://tu-destino/', headers: {} };
+export const POST_REQUEST = { method: 'POST', url: 'https://tu-destino/', headers: {}, body: { value: 1 } };
+export const REQUEST_TO_USE = GET_REQUEST; // O POST_REQUEST.
+export const CLIENTS_TO_USE = ['tls', 'fingerprint', 'impers', 'utls'];
+export const REQUESTS_PER_CLIENT = 20;
+export const REPORT_EVERY = 5;
 ```
 
-Puedes omitir el prefijo o cambiar la carpeta con `jsonFile.directory = 'otra-carpeta'`. El formato, contenido y ruta se muestran en consola. Si el nombre ya existe, Node devuelve su error normal y el archivo existente se conserva.
+La URL inicial está vacía para que configures tu destino. `AVAILABLE_CLIENTS` contiene las factorías de `tls`, `fingerprint`, `impers`, `utls` y `microlink`; sólo se crean los seleccionados. Microlink se selecciona explícitamente porque utiliza su API remota.
 
-Para guardar un cuerpo HTTP que puede ser JSON o HTML, pasa a `save` el resultado de `await response.text()`. Un objeto `Response` de `fetch` se serializa como `{}`; su contenido debe leerse antes.
+La cantidad es por cliente: 20 con cuatro clientes son 80 llamadas al destino. Los clientes se ejecutan secuencialmente y conservan su instancia. El script muestra la URL, el agente, su User-Agent efectivo y `isbot`; por petición muestra el status, las señales antibot y el tiempo. Cada `REPORT_EVERY` peticiones informa los conteos de todos los status observados. También informa el último bloque incompleto y un resumen final por cliente. Los errores de conexión se cuentan aparte, sin inventar un status 0.
+
+La detección usa las respuestas del propio conteo, sin una petición previa al destino. Para conocer el User-Agent nativo de Impers se hace una petición a un servidor loopback temporal; aparece como `identityRequests` y se informa fuera del conteo al destino. Microlink usa el diagnóstico que devuelve su API: se cuenta el status del destino, y un User-Agent no disponible queda como `null`/`desconocido`.
+
+GET usa redirecciones manuales en los clientes directos. POST conserva el comportamiento de cada cliente, incluidas sus redirecciones. Las cantidades representan llamadas a get/post; los detalles internos de navegación de Microlink dependen del servicio.
+
+Cada ejecución crea una carpeta única en el directorio temporal del entorno donde corre Node y muestra su ruta:
+
+```text
+/tmp/client-bot-.../
+  request.json
+  tls/
+    000001.json
+    000002.json
+  utls/
+    000001.json
+  summary.json
+```
+
+Cada archivo conserva status, headers, cuerpo JSON o texto, identidad, detección, duración y error si existe. Las credenciales reconocibles de headers y campos sensibles se ocultan al guardar. Los archivos permanecen tras finalizar para inspeccionarlos y se pueden borrar después; si ejecutas en el Dev Container estarán dentro de él.
+
+`isbot` sólo evalúa el User-Agent. `has antibot=false` significa que no se encontraron señales conocidas en esa respuesta; no demuestra ausencia de protección. El resumen distingue los errores de transporte de los estados HTTP. Las pruebas usan servidores locales y una API Microlink simulada.
+
+## Detectar un bot
+
+```ts
+import { BotDetector } from './tool/BotDetector.js';
+
+const detector = new BotDetector();
+const detected = detector.check('Googlebot/2.1 (+http://www.google.com/bot.html)');
+console.log(detected); // true
+```
+
+`check(userAgent: string): boolean` usa los patrones de [isbot](https://github.com/omrilotan/isbot). `false` significa que no reconoció un patron de bot; no confirma que el cliente sea una persona.
+
+## Detectar protección antibot
+
+```ts
+import { AntibotDetector } from './tool/AntibotDetector.js';
+
+const detector = new AntibotDetector();
+const result = detector.check({
+  statusCode: 403,
+  headers: { 'cf-mitigated': 'challenge' },
+  html: '',
+  url: 'https://example.com/',
+});
+console.log(result);
+// { detected: true, provider: 'cloudflare', detection: 'headers', technique: 'javascript' }
+```
+
+`check(input: isAntibot.Input): isAntibot.Result` conserva la entrada y salida de [is-antibot](https://github.com/microlinkhq/is-antibot), incluidos sus alias `body` y `status`. Las cabeceras pueden ser un objeto `Headers` o un registro compatible con la libreria.
+
+La herramienta analiza los datos que le pases. Para analizar una respuesta de un cliente, lee su cuerpo una vez con `await response.text()` y pasa el texto como `html`, las cabeceras como `headers` y el estado como `statusCode`. `src/main.ts` incluye este ejemplo comentado con `TlsClient`.
+
+`detected: false` significa que no encontró señales conocidas en esos datos; no demuestra que el sitio carezca de protección. Un HTTP 403 generico tampoco identifica por si solo al proveedor. Las herramientas se invocan de forma explícita y no cambian las respuestas de los clientes.
+
+## Proyecto anterior
+
+`legacy` conserva el estado anterior a la reorganizacion, incluidas las modificaciones locales y copias manuales. Su README, manifiestos y configuración originales se mantienen sin cambios. Altenar, SofaScore, probes, mocks y `JsonFile` permanecen alli.
+
+`.git`, `node_modules`, `.env` y los metadatos locales de trabajo permanecen en la raíz. Los archivos generados de `dist` se regeneran con la estructura nueva; los resultados anteriores estan en `legacy/results` y siguen ignorados por Git. La configuración activa de TypeScript compila solo `src`.
+
+Consulta `legacy/ARCHIVE.md` para los comandos anteriores. Las pruebas activas usan servidores locales y no requieren peticiónes a los proveedores.

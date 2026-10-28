@@ -5,7 +5,7 @@ import { test } from 'node:test';
 for (const name of ['TlsClient', 'FingerprintClient']) {
   test(`${name} sends GET and JSON POST with a stable User-Agent and preserves caller headers`, async () => {
     let imported;
-    try { imported = await import(`../src/${name}.ts`); }
+    try { imported = await import(`../src/client/${name}.ts`); }
     catch (error) { assert.fail(`${name} must be implemented: ${error.message}`); }
     const Client = imported[name];
     const server = createServer(async (req, res) => {
@@ -68,7 +68,7 @@ test('FingerprintClient runs without loading TlsClient', async () => {
       }
       return nextResolve(specifier, context);
     }});
-    const { FingerprintClient } = await import('./src/FingerprintClient.ts');
+    const { FingerprintClient } = await import('./src/client/FingerprintClient.ts');
     const client = new FingerprintClient();
     if (!client.userAgent) throw new Error('Missing generated User-Agent');
     await client.close();

@@ -1,0 +1,31 @@
+{
+  "name": "microlink-imitation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "tsx --env-file=.env src/main.ts",
+    "start:sofascore": "tsx --env-file=.env src/main-sofascore.ts",
+    "probe:clients": "tsx --env-file=.env src/probe-clients.ts",
+    "probe:mock": "tsx src/mock/main.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "packageManager": "pnpm@12.10.1",
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "fingerprint-generator": "^2.1.89",
+    "https-tls": "^1.0.25",
+    "impers": "0.1.2",
+    "top-user-agents": "^2.1.143",
+    "undici": "^8.12.3",
+    "unique-random-array": "^4.0.0"
+  }
+}

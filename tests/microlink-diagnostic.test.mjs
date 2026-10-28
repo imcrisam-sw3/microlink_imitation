@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {test} from 'node:test';
-import {Microlink} from '../src/Microlink.ts';
+import {Microlink} from '../src/client/Microlink.ts';
 
 test('GET reports the actual destination agent and masks opaque tokens in logs and returned results', async () => {
   const secret='opaque-token-for-diagnostic-test';

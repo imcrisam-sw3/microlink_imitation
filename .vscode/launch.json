@@ -9,31 +9,10 @@
       "runtimeArgs": [
         "--import",
         "tsx",
-        "--env-file=${workspaceFolder}/.env",
+        "--env-file-if-exists=${workspaceFolder}/.env",
         "--enable-source-maps"
       ],
       "program": "${workspaceFolder}/src/main.ts",
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "sourceMaps": true,
-      "stopOnEntry": true,
-      "skipFiles": [
-        "<node_internals>/**",
-        "${workspaceFolder}/node_modules/**"
-      ]
-    },
-    {
-      "name": "Depurar SofaScore (Dev Container)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "--import",
-        "tsx",
-        "--env-file=${workspaceFolder}/.env",
-        "--enable-source-maps"
-      ],
-      "program": "${workspaceFolder}/src/main-sofascore.ts",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "sourceMaps": true,

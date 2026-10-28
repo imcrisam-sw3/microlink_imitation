@@ -3,8 +3,8 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 
-for (const [entry, nativeReady] of [['main.ts', true], ['main-sofascore.ts', true], ['main-sofascore.ts', false]]) {
-  test(entry + (nativeReady ? ' compares all three clients against local fixtures' : ' preserves working clients when native engine is unavailable'), { timeout: 20000 }, async () => {
+for (const [entry, nativeReady, sharedProfile = false] of [['main.ts', true], ['main-sofascore.ts', true], ['main-sofascore.ts', false], ['main.ts', true, true], ['main-sofascore.ts', true, true]]) {
+  test(entry + (sharedProfile ? ' shared-profile mode' : '') + (nativeReady ? ' compares all three clients against local fixtures' : ' preserves working clients when native engine is unavailable'), { timeout: 20000 }, async () => {
     const seen = [];
     const server = createServer(async (req, res) => {
       let body = '';
@@ -36,7 +36,7 @@ for (const [entry, nativeReady] of [['main.ts', true], ['main-sofascore.ts', tru
     const script = 'import { registerHooks } from "node:module"; registerHooks({ resolve(specifier, context, nextResolve) {' +
       nativeFailureHook + 'if (context.parentURL === ' + JSON.stringify(entryUrl) + ' && specifier === ' + JSON.stringify(target) +
       ') return { url: "data:text/javascript," + encodeURIComponent(' + JSON.stringify(fixture) + '), shortCircuit: true };' +
-      'return nextResolve(specifier, context); }}); await import(' + JSON.stringify(entryUrl) + ');';
+      'return nextResolve(specifier, context); }}); ' + (sharedProfile ? 'process.argv.push("--shared-profile"); ' : '') + 'await import(' + JSON.stringify(entryUrl) + ');';
     const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
       cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -61,6 +61,16 @@ for (const [entry, nativeReady] of [['main.ts', true], ['main-sofascore.ts', tru
         assert.ok(!stdout.includes('local-token'));
       }
       assert.ok(seen.some(row => /iPhone/.test(row.headers['user-agent'])));
+      if (sharedProfile) {
+        assert.match(stdout, /Headers compartidos/);
+        assert.equal(new Set(seen.map(row => row.headers['user-agent'])).size, 1);
+        for (const requestPath of new Set(seen.map(row => row.path))) {
+          const rows = seen.filter(row => row.path === requestPath);
+          for (const name of ['user-agent', 'accept', 'accept-encoding', 'accept-language', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'referer', 'authorization']) {
+            assert.deepEqual(rows.map(row => row.headers[name]), Array(rows.length).fill(rows[1].headers[name]), name);
+          }
+        }
+      }
     } finally {
       clearTimeout(timer);
       if (child.exitCode === null) child.kill('SIGKILL');

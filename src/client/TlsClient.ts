@@ -1,29 +1,22 @@
-import { FingerprintGenerator, type FingerprintGeneratorOptions, type Fingerprint } from 'fingerprint-generator';
 import { Agent, Headers, fetch } from 'undici';
+import uniqueRandomArray from 'unique-random-array';
+import userAgents from 'top-user-agents';
 import tls from 'https-tls';
 
-export class FingerprintClient {
-  readonly fingerprint: Fingerprint;
+const randomUserAgent = uniqueRandomArray(userAgents);
+
+export class TlsClient {
   readonly userAgent: string;
   readonly tlsOptions: Omit<ReturnType<typeof tls>, 'signatureAlgorithms'> & { sigalgs?: string };
   readonly headers: Readonly<Record<string, string>>;
   private readonly agent: Agent;
 
-  constructor(options: Partial<Omit<FingerprintGeneratorOptions, 'httpVersion'>> = {}) {
-    const generator = new FingerprintGenerator({
-      operatingSystems: ['ios'],
-      devices: ['mobile'],
-      ...options,
-      // Undici utiliza HTTP/1.1 con este Agent; no se anuncian perfiles HTTP/2.
-      httpVersion: '1',
-    });
-    const { fingerprint, headers } = generator.getFingerprint();
-    const userAgent = headers['user-agent'] ?? headers['User-Agent'];
-    if (!userAgent) throw new Error('El fingerprint generado no incluye User-Agent.');
+  constructor(userAgent = randomUserAgent(), headers: Record<string, string> = {}) {
+    if (!userAgent) throw new Error('No se pudo obtener un User-Agent.');
     this.userAgent = userAgent;
     this.headers = Object.freeze({ ...headers });
-    this.fingerprint = fingerprint;
     const { signatureAlgorithms, ...tlsOptions } = tls(userAgent);
+    // https-tls usa el nombre de Got; Node/Undici reconoce sigalgs.
     this.tlsOptions = { ...tlsOptions, sigalgs: signatureAlgorithms };
     this.agent = new Agent({ connect: { ...this.tlsOptions } });
   }
@@ -61,7 +54,7 @@ export class FingerprintClient {
   private requestHeaders(headers: Record<string, string>) {
     const merged = new Headers(this.headers);
     for (const [name, value] of Object.entries(headers)) merged.set(name, value);
-    // Mantiene el User-Agent asociado a los encabezados de este fingerprint.
+    // La instancia mantiene el mismo User-Agent usado para configurar su TLS.
     merged.set('user-agent', this.userAgent);
     return merged;
   }

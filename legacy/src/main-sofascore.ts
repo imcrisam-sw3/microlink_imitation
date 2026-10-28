@@ -12,11 +12,15 @@ type LiveEvent = {
 };
 
 const sofaScore = new SofaScore();
+const sharedProfile = process.argv.includes('--shared-profile');
+const reference = new FingerprintClient();
 const clients = [
-  ['TLS', new TlsClient()],
-  ['Fingerprint', new FingerprintClient()],
-  ['Impers', new ImpersClient()],
+  ['TLS', sharedProfile ? new TlsClient(reference.userAgent, { ...reference.headers }) : new TlsClient()],
+  ['Fingerprint', reference],
+  ['Impers', new ImpersClient(sharedProfile
+    ? { headerMode: 'provided', headers: { ...reference.headers } } : {})],
 ] as const;
+if (sharedProfile) console.log('[Comparación] Headers compartidos de Fingerprint; Impers conserva su motor TLS nativo.');
 const events: LiveEvent[] = [];
 let selectedEvents = false;
 let rateLimited = false;
@@ -57,6 +61,7 @@ try {
         await client.ready();
         impersReady = true;
         console.log('[' + name + '] Perfil nativo:', client.impersonate);
+        if (client.headerMode === 'provided') console.log('[' + name + '] User-Agent compartido:', client.headers['user-agent']);
       } catch (error) {
         console.error('[' + name + '] Error:', error instanceof Error ? error.message : String(error));
         process.exitCode = 1;

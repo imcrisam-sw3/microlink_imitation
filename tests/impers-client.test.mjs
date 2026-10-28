@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 async function createClient(options) {
   let imported;
-  try { imported = await import('../src/ImpersClient.ts'); }
+  try { imported = await import('../src/client/ImpersClient.ts'); }
   catch (error) { assert.fail('Falta ImpersClient: ' + error.message); }
   return new imported.ImpersClient(options);
 }
@@ -165,7 +165,7 @@ test('constructing and closing an unused client does not load the native engine'
       }
       return nextResolve(specifier, context);
     }});
-    const { ImpersClient } = await import('./src/ImpersClient.ts');
+    const { ImpersClient } = await import('./src/client/ImpersClient.ts');
     const client = new ImpersClient();
     await client.close();
   `;
@@ -180,7 +180,7 @@ test('ready rejects a conventional libcurl before constructing a session', () =>
   const script = 'import assert from "node:assert/strict"; import { registerHooks } from "node:module"; const source = ' +
     JSON.stringify(source) + '; registerHooks({ resolve(specifier, context, nextResolve) {' +
     'if (specifier === "impers") return { url: "data:text/javascript," + encodeURIComponent(source), shortCircuit: true };' +
-    'return nextResolve(specifier, context); }}); const { ImpersClient } = await import("./src/ImpersClient.ts");' +
+    'return nextResolve(specifier, context); }}); const { ImpersClient } = await import("./src/client/ImpersClient.ts");' +
     'const client = new ImpersClient(); await assert.rejects(client.ready(), /libcurl.*impersonaci/); await client.close();';
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
     cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 10000,
@@ -193,3 +193,40 @@ test('connection failures are propagated as errors', async t => {
   const url = await serve(t, req => req.socket.destroy());
   await assert.rejects(client.get(url));
 });
+
+test('provided header mode preserves the reference identity and functional request overrides', async t => {
+  const headers = { 'User-Agent': 'Reference iPhone Safari', 'Accept-Encoding': 'gzip, deflate, br, zstd', 'X-Test': 'default' };
+  const client = await createClient({ headerMode: 'provided', headers });
+  t.after(() => client.close());
+  const url = await serve(t, echo);
+  const request = { 'user-agent': 'must-not-replace-reference', 'sec-ch-ua': '"Chromium";v="153"', 'sec-ch-ua-mobile': '?0', 'sec-ch-ua-platform': '"Windows"', 'x-test': 'request', Origin: 'https://caller.example', Referer: 'https://caller.example/', Authorization: 'local-token' };
+  const data = await (await client.post(url, { value: 7 }, request)).json();
+  assert.equal(data.headers['user-agent'], 'Reference iPhone Safari');
+  assert.equal(data.headers['accept-encoding'], 'gzip, deflate, br, zstd');
+  assert.equal(data.headers['sec-ch-ua'], '"Chromium";v="153"');
+  assert.equal(data.headers['sec-ch-ua-mobile'], '?0');
+  assert.equal(data.headers['sec-ch-ua-platform'], '"Windows"');
+  assert.equal(data.headers['x-test'], 'request');
+  assert.equal(data.headers.origin, 'https://caller.example');
+  assert.equal(data.headers.referer, 'https://caller.example/');
+  assert.equal(data.headers.authorization, 'local-token');
+  assert.deepEqual(JSON.parse(data.body), { value: 7 });
+  assert.deepEqual(headers, { 'User-Agent': 'Reference iPhone Safari', 'Accept-Encoding': 'gzip, deflate, br, zstd', 'X-Test': 'default' });
+  assert.equal(request['user-agent'], 'must-not-replace-reference');
+});
+for (const [encoding, compressor] of [['zstd', 'zstdCompressSync'], ['gzip', 'gzipSync'], ['br', 'brotliCompressSync'], ['deflate', 'deflateSync']]) {
+test('provided headers decode advertised ' + encoding + ' responses exactly once', async t => {
+  const zlib = await import('node:zlib');
+  const client = await createClient({ headerMode: 'provided', headers: { 'User-Agent': 'Reference Safari', 'Accept-Encoding': 'gzip, deflate, br, zstd' } });
+  t.after(() => client.close());
+  const url = await serve(t, (req, res) => {
+    assert.match(req.headers['accept-encoding'], /zstd/);
+    res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': encoding });
+    res.end(zlib[compressor](Buffer.from('{"value":"decoded"}')));
+  });
+  const response = await client.get(url);
+  assert.equal(await response.text(), '{"value":"decoded"}');
+  assert.deepEqual(await response.json(), { value: 'decoded' });
+});
+
+}
